@@ -20,48 +20,47 @@ def limpiar_y_filtrar(df):
     # Procesamiento unificado de texto en minúsculas y sin acentos
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
-    # 1. LISTA BLANCA DE RANGOS DE ALTA DIRECCIÓN (Obligatorio)
-    rangos_ejecutivos = ["gerente", "ceo", "cfo", "subgerente", "director", "chief"]
-    condicion_rango = df['title_lower'].apply(
-        lambda x: any(rango in str(x) for rango in rangos_ejecutivos) if pd.notnull(x) else False
+    # 1. TÉRMINOS EJECUTIVOS EXCLUSIVOS SOLICITADOS (Tu foco exacto de la primera solicitud)
+    # Cualquier puesto en el reporte debe contener estrictamente alguna de estas combinaciones
+    conceptos_clave = [
+        "gerente general", "ceo", "cfo", "gerente finanzas", 
+        "gerente de finanzas", "administracion y finanzas", "administracion & finanzas",
+        "gerente administracion", "gerente de administracion", "director de finanzas"
+    ]
+    
+    condicion_perfil_estricto = df['title_lower'].apply(
+        lambda x: any(concepto in str(x) for concepto in conceptos_clave) if pd.notnull(x) else False
     )
     
-    # 2. FILTRADO POR COINCIDENCIA DE NICHO ESTRICTO (CORRECCIÓN CRÍTICA)
-    # Evaluamos condiciones por duplas exactas para que el área comercial u operacional no contamine el reporte
-    es_general = df['title_lower'].str.contains("general", na=False)
-    es_financiero = df['title_lower'].str.contains("finan", na=False) | df['title_lower'].str.contains("cfo", na=False)
-    es_soporte_clave = df['title_lower'].str.contains("legal", na=False) | df['title_lower'].str.contains("ti", na=False)
+    # 2. LISTA NEGRA AGRESIVA DE ÁREAS EXCLUIDAS (Veto total a Operaciones, RRHH, Proyectos, etc.)
+    lista_negra_areas = [
+        "jefe", "analista", "comercial", "ventas", "marketing", "produccion", 
+        "personas", "cultura", "rrhh", "recursos humanos", "talent", "office", 
+        "operaciones", "operations", "tiendas", "proyectos", "project"
+    ]
     
-    # El puesto debe pertenecer estrictamente a una de tus tres áreas de interés ejecutivo
-    condicion_especialidad_estricta = es_general | es_financiero | es_soporte_clave
-    
-    # 3. LISTA NEGRA: Exclusión de cargos operativos y áreas no solicitadas (Veto a Comercial y Operaciones puros)
-    lista_negra = ["jefe", "analista", "comercial", "operaciones", "ventas", "marketing", "produccion", "excellence"]
-    
-    # SALVOCONDUCTO EXTRA: Si el título dice "Gerente General" pero menciona comercial, lo salvamos; si es "Gerente Comercial" a secas, se va.
-    condicion_excluir_automatica = df['title_lower'].apply(
-        lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
+    condicion_exclusion_areas = df['title_lower'].apply(
+        lambda x: any(neg in str(x) for neg in lista_negra_areas) if pd.notnull(x) else False
     )
-    condicion_salvoconducto_general = df['title_lower'].str.contains("general", na=False)
     
-    condicion_exclusion_final = condicion_excluir_automatica & ~condicion_salvoconducto_general
+    # Filtro geográfico flexible para la Región Metropolitana
+    df['location_lower'] = df['location'].apply(remover_tildes).str.lower()
+    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
+    condicion_ciudad = df['location_lower'].apply(
+        lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
+    )
     
-    # 4. PROTECCIÓN ADMINISTRADOR
-    condicion_es_administrador = df['title_lower'].str.contains("administrador", na=False)
-    condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
-    condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
-    
-    # Consolidación lógica final de alta exigencia directiva
-    df_filtrado = df[condicion_rango & condicion_especialidad_estricta & ~condicion_exclusion_final & ~condicion_exclusion_admin].copy()
+    # Aplicamos el filtro: Cumple tus conceptos clave, está en Santiago y NO pertenece a la lista negra
+    df_filtrado = df[condicion_perfil_estricto & condicion_ciudad & ~condicion_exclusion_areas].copy()
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Empleos finales que pasaron el filtro ejecutivo estricto: {len(df_filtrado)}")
-    return df_filtrado.drop(columns=['title_lower'], errors='ignore')
+    print(f"Empleos finales que pasaron el filtro ejecutivo puro: {len(df_filtrado)}")
+    return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
 
 def buscar_linkedin():
     try:
-        print("Consultando LinkedIn (Filtro Ejecutivo)...")
-        query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente de Administracion" OR "Gerente Administracion"'
+        print("Consultando LinkedIn (Filtro 24h)...")
+        query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"'
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term=query_lk,
@@ -129,7 +128,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2>Alerta Ejecutiva Filtrada</h2>
-            <p>El sistema realizó el barrido masivo, pero no se publicaron nuevas vacantes puras de Gerencia General, CFO o Finanzas en el rango de tiempo seleccionado para Santiago.</p>
+            <p>El sistema realizó el barrido masivo, pero no se registraron nuevas vacantes puras de Gerencia General, CFO o Finanzas en el rango de tiempo seleccionado para Santiago.</p>
         </body>
         </html>
         """
@@ -148,7 +147,7 @@ def enviar_correo(df):
         </head>
         <body>
             <h2>Vacantes Exclusivas de Alta Dirección y Finanzas - Santiago</h2>
-            <p>Reporte unificado depurado de áreas comerciales u operativas:</p>
+            <p>Reporte unificado de alta pureza ejecutivo (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
