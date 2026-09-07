@@ -6,21 +6,16 @@ import pandas as pd
 from jobspy import scrape_jobs
 
 def limpiar_y_filtrar(df):
-    if df.empty:
-        return df
+    if df is None or df.empty:
+        return pd.DataFrame()
     
-    # Términos solicitados obligatorios
     keywords = ["gerente", "ceo", "cfo", "administracion y finanzas", "finanzas"]
-    
-    # Filtrado lógico en minúsculas para normalizar
     df['title_lower'] = df['title'].str.lower()
     
-    # Asegurar coincidencia exacta con tus palabras clave
     condicion_puesto = df['title_lower'].apply(
-        lambda x: any(kw in x for kw in keywords) if pd.notnull(x) else False
+        lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    # Filtrar estrictamente por Santiago de Chile
     df['location_lower'] = df['location'].str.lower()
     condicion_ciudad = df['location_lower'].str.contains('santiago', na=False)
     
@@ -29,13 +24,12 @@ def limpiar_y_filtrar(df):
 
 def buscar_linkedin():
     try:
-        # jobspy busca en LinkedIn sin autenticación de manera eficiente
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
             location="Santiago, Chile",
             results_wanted=30,
-            hours_old=24, # Solo lo del último día
+            hours_old=24,
             country_indeed="chile"
         )
         return jobs
@@ -48,19 +42,18 @@ def enviar_correo(df):
     sender_password = os.environ.get("SMTP_PASSWORD")
     receiver_email = os.environ.get("RECEIVER_EMAIL")
     
-    if not sender_email or !sender_password or !receiver_email:
+    if not sender_email or not sender_password or not receiver_email:
         print("Faltan variables de entorno para enviar el correo.")
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Alerta Diaria de Vacantes Ejecutivas - Santiago"
-    msg["] = sender_email
+    msg["Subject"] = "Alerta Diaria de Vacantes Ejecutivas - Santiago"
+    msg["From"] = sender_email
     msg["To"] = receiver_email
 
     if df.empty:
         html = "<p>No se encontraron nuevas vacantes directivas que cumplan los criterios en las últimas 24 horas.</p>"
     else:
-        # Construcción de la tabla en HTML
         html = """
         <html>
         <head>
@@ -104,9 +97,5 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción de vacantes...")
     df_linkedin = buscar_linkedin()
-    
-    # Aquí puedes concatenar funciones adicionales para BeautifulSoup (Chiletrabajos/Laborum)
-    df_total = df_linkedin 
-    
-    df_final = limpiar_y_filtrar(df_total)
+    df_final = limpiar_y_filtrar(df_linkedin)
     enviar_correo(df_final)
