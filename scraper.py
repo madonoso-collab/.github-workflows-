@@ -20,8 +20,7 @@ def limpiar_y_filtrar(df):
     # Procesamiento unificado de texto en minúsculas y sin acentos
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
-    # 1. TÉRMINOS EJECUTIVOS EXCLUSIVOS SOLICITADOS (Tu foco exacto de la primera solicitud)
-    # Cualquier puesto en el reporte debe contener estrictamente alguna de estas combinaciones
+    # 1. TÉRMINOS EJECUTIVOS EXCLUSIVOS SOLICITADOS (Tu foco de alta pureza)
     conceptos_clave = [
         "gerente general", "ceo", "cfo", "gerente finanzas", 
         "gerente de finanzas", "administracion y finanzas", "administracion & finanzas",
@@ -32,7 +31,7 @@ def limpiar_y_filtrar(df):
         lambda x: any(concepto in str(x) for concepto in conceptos_clave) if pd.notnull(x) else False
     )
     
-    # 2. LISTA NEGRA AGRESIVA DE ÁREAS EXCLUIDAS (Veto total a Operaciones, RRHH, Proyectos, etc.)
+    # 2. LISTA NEGRA AGRESIVA DE ÁREAS EXCLUIDAS (Cero ruido operativo)
     lista_negra_areas = [
         "jefe", "analista", "comercial", "ventas", "marketing", "produccion", 
         "personas", "cultura", "rrhh", "recursos humanos", "talent", "office", 
@@ -50,11 +49,11 @@ def limpiar_y_filtrar(df):
         lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
     )
     
-    # Aplicamos el filtro: Cumple tus conceptos clave, está en Santiago y NO pertenece a la lista negra
+    # Consolidación lógica final
     df_filtrado = df[condicion_perfil_estricto & condicion_ciudad & ~condicion_exclusion_areas].copy()
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Empleos finales que pasaron el filtro ejecutivo puro: {len(df_filtrado)}")
+    print(f"Empleos finales que pasaron el filtro ejecutivo puro (24h): {len(df_filtrado)}")
     return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
 
 def buscar_linkedin():
@@ -66,7 +65,7 @@ def buscar_linkedin():
             search_term=query_lk,
             location="Santiago, Chile",
             results_wanted=200,  
-            hours_old=168,       
+            hours_old=24,       # AJUSTADO A 24 HORAS
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -83,7 +82,7 @@ def buscar_indeed_especifico():
             search_term="Gerente Administracion Finanzas Santiago",
             location="Santiago, Chile",
             results_wanted=200,  
-            hours_old=168,       
+            hours_old=24,       # AJUSTADO A 24 HORAS
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -100,7 +99,7 @@ def buscar_portales_locales_generico():
             search_term='"Gerente General" OR "Gerente Finanzas" Santiago',
             location="Santiago, Chile",
             results_wanted=200,  
-            hours_old=168,       
+            hours_old=24,       # AJUSTADO A 24 HORAS
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -128,7 +127,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2>Alerta Ejecutiva Filtrada</h2>
-            <p>El sistema realizó el barrido masivo, pero no se registraron nuevas vacantes puras de Gerencia General, CFO o Finanzas en el rango de tiempo seleccionado para Santiago.</p>
+            <p>El sistema realizó el barrido masivo, pero no se registraron nuevas vacantes puras de Gerencia General, CFO o Finanzas en las últimas 24 horas para Santiago.</p>
         </body>
         </html>
         """
@@ -147,7 +146,7 @@ def enviar_correo(df):
         </head>
         <body>
             <h2>Vacantes Exclusivas de Alta Dirección y Finanzas - Santiago</h2>
-            <p>Reporte unificado de alta pureza ejecutivo (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <p>Reporte unificado de alta pureza ejecutivo de las últimas 24 horas (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
@@ -187,7 +186,7 @@ def enviar_correo(df):
                 print("Error crítico definitivo en el canal de envío SMTP tras 3 intentos.")
 
 if __name__ == "__main__":
-    print("Iniciando extracción de vacantes unificada de alta pureza...")
+    print("Iniciando extracción de vacantes unificada diaria...")
     
     df_lk = buscar_linkedin()
     df_ind_obj = buscar_indeed_especifico()
