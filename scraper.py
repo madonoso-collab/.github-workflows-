@@ -10,6 +10,7 @@ from jobspy import scrape_jobs
 def remover_tildes(texto):
     if not isinstance(texto, str):
         return ""
+    # Descompone caracteres complejos (ej: Ó, ó) a sus formas base sin acentos (O, o)
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_y_filtrar(df):
@@ -17,29 +18,36 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # Normalización del texto del título (sin tildes y en minúsculas)
+    # PROCESAMIENTO SEGURO: Primero removemos tildes sobre el texto original y luego pasamos a minúsculas
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
-    # 1. LISTA NEGRA: Si contiene alguna de estas palabras, se descarta inmediatamente
-    lista_negra = ["jefe", "analista", "administrador"]
-    condicion_exclusion = df['title_lower'].apply(
-        lambda x: any(neg en str(x) for neg in lista_negra) if pd.notnull(x) else False
-    )
-    
-    # 2. LISTA BLANCA DE RANGOS EJECUTIVOS: El puesto debe tener uno de estos cargos de Alta Dirección
+    # 1. LISTA BLANCA DE RANGOS EJECUTIVOS (Obligatorio)
     rangos_ejecutivos = ["gerente", "ceo", "cfo", "subgerente", "director", "chief"]
     condicion_rango = df['title_lower'].apply(
         lambda x: any(rango in str(x) for rango in rangos_ejecutivos) if pd.notnull(x) else False
     )
     
-    # 3. LISTA BLANCA DE ESPECIALIDADES: Asegura capturar administración, finanzas y gerencia general
+    # 2. LISTA BLANCA DE ESPECIALIDADES (Obligatorio)
     especialidades = ["general", "finanzas", "administracion", "legal", "ti", "comercial"]
     condicion_especialidad = df['title_lower'].apply(
         lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
     )
     
-    # Aplicación de la lógica combinada (Debe cumplir rango y especialidad, y NO estar en la lista negra)
-    df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion].copy()
+    # 3. LISTA NEGRA DE CARGOS OPERATIVOS (Exclusión con operador 'in' corregido)
+    lista_negra = ["jefe", "analista"]
+    condicion_exclusion_operativa = df['title_lower'].apply(
+        lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
+    )
+    
+    # 4. SALVOCONDUCTO PARA ADMINISTRACIÓN: Evita que la palabra "administrador" vete una Gerencia legítima
+    condicion_es_administrador = df['title_lower'].str.contains("administrador", na=False)
+    condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
+    
+    # Se excluye si es "administrador" A MENOS QUE sea explícitamente una "gerente de administracion"
+    condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
+    
+    # Aplicación de la lógica combinada de filtrado ejecutivo estricto
+    df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion_operativa & ~condicion_exclusion_admin].copy()
     
     # Eliminar duplicados exactos por título y empresa
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
@@ -100,7 +108,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2>Alerta Ejecutiva Diaria</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registrarion nuevas vacantes de Alta Dirección bajo tus criterios en las últimas 24 horas en Santiago.</p>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes de Alta Dirección bajo tus criterios en las últimas 24 horas en Santiago.</p>
         </body>
         </html>
         """
