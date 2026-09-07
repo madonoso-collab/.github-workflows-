@@ -18,7 +18,7 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # PROCESAMIENTO SEGURO: Primero removemos tildes sobre el texto original y luego pasamos a minúsculas
+    # Procesamiento de texto seguro (tildes fuera y minúsculas)
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
     # 1. LISTA BLANCA DE RANGOS EJECUTIVOS (Obligatorio)
@@ -33,23 +33,21 @@ def limpiar_y_filtrar(df):
         lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
     )
     
-    # 3. LISTA NEGRA DE CARGOS OPERATIVOS (Exclusión con operador 'in' corregido)
+    # 3. LISTA NEGRA DE CARGOS OPERATIVOS (Exclusión estricta)
     lista_negra = ["jefe", "analista"]
     condicion_exclusion_operativa = df['title_lower'].apply(
         lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
     )
     
-    # 4. SALVOCONDUCTO PARA ADMINISTRACIÓN: Evita que la palabra "administrador" vete una Gerencia legítima
+    # 4. SALVOCONDUCTO PARA ADMINISTRACIÓN: Asegura que "administrador" no borre una gerencia legítima
     condicion_es_administrador = df['title_lower'].str.contains("administrador", na=False)
     condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
-    
-    # Se excluye si es "administrador" A MENOS QUE sea explícitamente una "gerente de administracion"
     condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
     
-    # Aplicación de la lógica combinada de filtrado ejecutivo estricto
+    # Consolidación lógica de filtros
     df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion_operativa & ~condicion_exclusion_admin].copy()
     
-    # Eliminar duplicados exactos por título y empresa
+    # Eliminación definitiva de duplicados cruzados
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
     print(f"Empleos finales que pasaron el filtro ejecutivo: {len(df_filtrado)}")
@@ -57,16 +55,20 @@ def limpiar_y_filtrar(df):
 
 def buscar_linkedin():
     try:
-        print("Consultando LinkedIn (Filtro 24h)...")
+        print("Consultando LinkedIn (Búsqueda por bloques de palabras clave)...")
+        # ESTRATEGIA EXPANSIVA: Quitamos las comillas rígidas "Gerente de Administracion" para abarcar todas las variantes
+        query_ejecutiva = '(Gerente OR Director OR Subgerente OR CEO OR CFO) AND (Administracion OR Finanzas OR General)'
+        
         jobs = scrape_jobs(
             site_name=["linkedin"],
-            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente de Administracion"',
+            search_term=query_ejecutiva,
             location="Santiago, Chile",
             results_wanted=50,
             hours_old=24,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
+            print(f"LinkedIn devolvió {len(jobs)} resultados en bruto.")
             return jobs[['title', 'company', 'job_url', 'location']].copy()
     except Exception as e:
         print(f"Aviso: LinkedIn no arrojó resultados en este ciclo: {e}")
@@ -153,12 +155,12 @@ def enviar_correo(df):
     for intento in range(1, max_intentos + 1):
         try:
             print(f"Estableciendo conexión SSL directa por IP de Google 74.125.142.108:465 (Intento {intento}/{max_intentos})...")
-            server = smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20)
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
-            server.quit()
-            print("¡Correo entregado con éxito a tu bandeja de entrada!")
-            break
+            with smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20) as server:
+                server.login(sender_email, sender_password)
+                server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+                server.quit()
+                print("¡Correo entregado con éxito a tu bandeja de entrada!")
+                break
         except Exception as e:
             print(f"Intento {intento} falló debido a problemas de red: {e}")
             if intento < max_intentos:
