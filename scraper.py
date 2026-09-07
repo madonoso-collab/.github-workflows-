@@ -1,40 +1,51 @@
 import os
 import smtplib
 import requests
+import unicodedata
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from jobspy import scrape_jobs
 
+def remover_tildes(texto):
+    if not isinstance(texto, str):
+        return ""
+    # Transforma caracteres como 'ó' en 'o' para evitar fallos de codificación y mejorar filtros
+    return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+
 def limpiar_y_filtrar(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
-    # Términos específicos solicitados
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
-    df['title_lower'] = df['title'].str.lower()
+    print(f"Total de vacantes encontradas en bruto por los motores: {len(df)}")
     
-    condicion_puesto = df['title_lower'].apply(
+    # Términos específicos normalizados sin tildes
+    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
+    
+    # Limpieza de títulos
+    df['title_clean'] = df['title'].apply(remover_tildes).str.lower()
+    condicion_puesto = df['title_clean'].apply(
         lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    # Filtro geográfico flexible para la Región Metropolitana
-    df['location_lower'] = df['location'].str.lower()
+    # Limpieza de ubicaciones para Región Metropolitana
+    df['location_clean'] = df['location'].apply(remover_tildes).str.lower()
     comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
-    condicion_ciudad = df['location_lower'].apply(
+    condicion_ciudad = df['location_clean'].apply(
         lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
     )
     
     df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
     
-    # Eliminar duplicados exactos si se cruzan ofertas entre portales
+    # Eliminar duplicados exactos entre portales
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
+    print(f"Vacantes finales consolidadas que pasaron el filtro: {len(df_filtrado)}")
+    return df_filtrado.drop(columns=['title_clean', 'location_clean'], errors='ignore')
 
 def buscar_linkedin_y_agregadores():
     try:
-        print("Consultando LinkedIn e Indeed (Agregador de Laborum, Chiletrabajos y Trabajando)...")
+        print("Consultando LinkedIn e Indeed (Agregador)...")
         jobs = scrape_jobs(
             site_name=["linkedin", "indeed"],
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
@@ -49,24 +60,20 @@ def buscar_linkedin_y_agregadores():
         return pd.DataFrame()
 
 def buscar_firstjob():
-    """Scraper a la API de FirstJob Chile para capturar vacantes corporativas en las últimas 24h"""
     print("Consultando FirstJob Chile...")
     lista_empleos = []
     try:
-        # Endpoint público de la API de FirstJob filtrado para Chile
-        url = "https://firstjob.me &per_page=50"
+        url = "https://firstjob.me"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         response = requests.get(url, headers=headers, timeout=15)
         
         if response.status_code == 200:
             data = response.json()
-            # Estructura típica de respuesta de FirstJob
             jobs_data = data.get('data', []) if isinstance(data, dict) else data
             
             for job in jobs_data:
                 title = job.get('title', '')
                 company = job.get('company', {}).get('name', 'Empresa Confidencial')
-                # Enlace dinámico directo para postular en FirstJob
                 slug = job.get('slug', '')
                 job_url = f"https://firstjob.me{slug}" if slug else "https://firstjob.me"
                 location = job.get('city', 'Santiago, Chile')
@@ -102,7 +109,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2 style="color: #1A365D;">Reporte Ejecutivo Diario</h2>
-            <p>No se registraron nuevas vacantes de Alta Gerencia en LinkedIn, Laborum, Chiletrabajos, Trabajando.com ni FirstJob en las últimas 24 horas para Santiago.</p>
+            <p>No se registraron nuevos movimientos de vacantes de Alta Gerencia en LinkedIn, Laborum, Chiletrabajos, Trabajando.com ni FirstJob en las últimas 24 horas para Santiago.</p>
         </body>
         </html>
         """
@@ -110,6 +117,7 @@ def enviar_correo(df):
         html = """
         <html>
         <head>
+            <meta charset="utf-8">
             <style>
                 table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
                 th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; font-size: 13px; }
@@ -152,12 +160,14 @@ def enviar_correo(df):
             """
         html += "</table></body></html>"
 
-    msg.attach(MIMEText(html, "html"))
+    # FORZAMOS EXPLICITAMENTE LA CODIFICACIÓN UTF-8 AQUÍ
+    msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
         with smtplib.SMTP_SSL("://gmail.com", 465) as server:
             server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string())
+            # Pasamos la cadena codificada para evitar quiebres de transmisión por tildes
+            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
         print("¡Correo consolidado multiportal enviado con éxito!")
     except Exception as e:
         print(f"Error crítico en el canal de envío SMTP: {e}")
@@ -165,15 +175,10 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción unificada multiportal (Chile)...")
     
-    # 1. Ejecutar búsquedas en paralelo
     df_motores = buscar_linkedin_y_agregadores()
     df_firstjob = buscar_firstjob()
     
-    # 2. Consolidar ambas fuentes de datos
     df_consolidado = pd.concat([df_motores, df_firstjob], ignore_index=True)
-    
-    # 3. Filtrar y limpiar resultados
     df_final = limpiar_y_filtrar(df_consolidado)
     
-    # 4. Enviar reporte ejecutivo
     enviar_correo(df_final)
