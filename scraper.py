@@ -16,8 +16,6 @@ def limpiar_y_filtrar(df):
         print("El DataFrame de búsqueda llegó vacío.")
         return pd.DataFrame()
     
-    print(f"Total de vacantes encontradas en bruto por los motores: {len(df)}")
-    
     # Palabras clave solicitadas para cargos ejecutivos
     keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
     
@@ -27,7 +25,7 @@ def limpiar_y_filtrar(df):
         lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    # Filtrado por ubicación (flexible para comunas corporativas de Santiago y RM)
+    # Filtrado por ubicación (flexible para comunas de Santiago y RM)
     df['location_clean'] = df['location'].apply(remover_tildes).str.lower()
     comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
     condicion_ciudad = df['location_clean'].apply(
@@ -42,24 +40,41 @@ def limpiar_y_filtrar(df):
     print(f"Vacantes definitivas que pasaron el filtro: {len(df_filtrado)}")
     return df_filtrado.drop(columns=['title_clean', 'location_clean'], errors='ignore')
 
-def buscar_vacantes():
+def buscar_linkedin():
     try:
-        print("Consultando LinkedIn e Indeed (Agregador de Laborum, Chiletrabajos y Trabajando)...")
+        print("Consultando LinkedIn (Filtro 24h estricto)...")
         jobs = scrape_jobs(
-            site_name=["linkedin", "indeed"],
+            site_name=["linkedin"],
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
             location="Santiago, Chile",
-            results_wanted=100, # Espectro amplio para capturar todos los subportales
-            hours_old=24,       # Alerta diaria estricta de las últimas 24 horas
+            results_wanted=40,
+            hours_old=24,
             country_indeed="chile"
         )
-        
         if jobs is not None and not jobs.empty:
-            # Filtramos solo las columnas esenciales para el reporte limpio
             return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
         return pd.DataFrame()
     except Exception as e:
-        print(f"Error en la extracción de vacantes: {e}")
+        print(f"Error en extracción de LinkedIn: {e}")
+        return pd.DataFrame()
+
+def buscar_portales_locales():
+    try:
+        print("Consultando Indeed (Agregador de Laborum, Chiletrabajos y Trabajando)...")
+        # Usamos 48h para Indeed para evitar que su formato ambiguo de fechas deje en cero la búsqueda
+        jobs = scrape_jobs(
+            site_name=["indeed"],
+            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
+            location="Santiago, Chile",
+            results_wanted=50,
+            hours_old=48, 
+            country_indeed="chile"
+        )
+        if jobs is not None and not jobs.empty:
+            return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"Error en extracción de portales locales: {e}")
         return pd.DataFrame()
 
 def enviar_correo(df):
@@ -81,7 +96,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2 style="color: #1A365D;">Reporte Ejecutivo Diario</h2>
-            <p>El sistema se ejecutó correctamente, pero no se publicaron nuevas vacantes directivas en LinkedIn, Laborum, Chiletrabajos ni Trabajando.com en las últimas 24 horas para Santiago.</p>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes en los portales monitoreados en el último ciclo para Santiago.</p>
         </body>
         </html>
         """
@@ -96,14 +111,14 @@ def enviar_correo(df):
                 th { background-color: #1A365D; color: white; font-size: 14px; }
                 tr:hover { background-color: #f5f5f5; }
                 a { color: #2B6CB0; text-decoration: none; font-weight: bold; }
-                .portal-badge { background-color: #E2E8F0; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #4A5568; text-transform: uppercase; }
+                .portal-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
                 .linkedin-badge { background-color: #EBF8FF; color: #2B6CB0; }
                 .indeed-badge { background-color: #E2E8F0; color: #2D3748; }
             </style>
         </head>
         <body>
             <h2 style="color: #1A365D;">Vacantes Ejecutivas Consolidadas - Santiago</h2>
-            <p>Reporte unificado multiportal de las últimas 24 horas (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <p>Reporte unificado multiportal (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
@@ -115,24 +130,18 @@ def enviar_correo(df):
         """
         for _, row in df.iterrows():
             origin = str(row.get('site', 'Enlace')).lower()
-            badge_class = "portal-badge"
             
-            # Ajuste estético según la procedencia
             if "linkedin" in origin:
-                badge_class += " linkedin-badge"
-                portal_display = "linkedin"
-            elif "indeed" in origin:
-                badge_class += " indeed-badge"
-                portal_display = "portal local"  # Representa a la red local de Laborum/Trabajando/Chiletrabajos
+                badge_html = '<span class="portal-badge linkedin-badge">linkedin</span>'
             else:
-                portal_display = origin
+                badge_html = '<span class="portal-badge indeed-badge">portal local</span>'
 
             html += f"""
                 <tr>
                     <td><b>{row['title']}</b></td>
                     <td>{row['company']}</td>
                     <td>{row.get('location', 'Santiago, RM')}</td>
-                    <td><span class="{badge_class}">{portal_display}</span></td>
+                    <td>{badge_html}</td>
                     <td><a href="{row['job_url']}" target="_blank">Ver Postulación</a></td>
                 </tr>
             """
@@ -149,7 +158,14 @@ def enviar_correo(df):
         print(f"Error crítico en el canal de envío SMTP: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando extracción unificada multiportal (Chile)...")
-    df_crudo = buscar_vacantes()
-    df_final = limpiar_y_filtrar(df_crudo)
+    print("Iniciando extracción unificada independiente...")
+    
+    # Forzamos las búsquedas por separado para que Indeed no rompa las fechas de LinkedIn
+    df_lk = buscar_linkedin()
+    df_locales = buscar_portales_locales()
+    
+    # Consolidamos de manera segura
+    df_total = pd.concat([df_lk, df_locales], ignore_index=True)
+    
+    df_final = limpiar_y_filtrar(df_total)
     enviar_correo(df_final)
