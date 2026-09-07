@@ -63,7 +63,7 @@ def buscar_linkedin():
             search_term=query_lk,
             location="Santiago, Chile",
             results_wanted=40,
-            hours_old=24,
+            hours_old=168,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
