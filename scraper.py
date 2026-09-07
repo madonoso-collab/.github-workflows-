@@ -15,7 +15,6 @@ def limpiar_y_filtrar(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
-    # LISTA CORREGIDA: Sin comillas sueltas ni caracteres truncados
     keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
     
     df['title_clean'] = df['title'].apply(remover_tildes).str.lower()
@@ -144,9 +143,18 @@ def enviar_correo(df):
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
-        with smtplib.SMTP_SSL("://gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+        # ARQUITECTURA DE CONEXIÓN ROBUSTA: Uso de STARTTLS en puerto 587 para evitar bloqueos DNS en la nube
+        print("Abriendo canal de comunicación SMTP (Puerto 587)...")
+        server = smtplib.SMTP("://gmail.com", 587, timeout=30)
+        server.ehlo()
+        print("Activando capa de cifrado seguro STARTTLS...")
+        server.starttls()
+        server.ehlo()
+        print("Autenticando credenciales cifradas con Google...")
+        server.login(sender_email, sender_password)
+        print("Transmitiendo el correo electrónico empaquetado...")
+        server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+        server.quit()
         print("¡Correo consolidado enviado con éxito!")
     except Exception as e:
         print(f"Error crítico en el canal de envío SMTP: {e}")
@@ -157,7 +165,6 @@ if __name__ == "__main__":
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # LISTA CORREGIDA: Inicialización de la lista de DataFrames con corchetes válidos
     lista_dfs = []
     
     if not df_lk.empty:
