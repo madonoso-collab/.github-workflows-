@@ -10,7 +10,6 @@ from jobspy import scrape_jobs
 def remover_tildes(texto):
     if not isinstance(texto, str):
         return ""
-    # Transforma 'Ó' u 'ó' directamente a sus caracteres base estables 'O' u 'o'
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_y_filtrar(df):
@@ -33,7 +32,7 @@ def limpiar_y_filtrar(df):
         lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
     )
     
-    # 3. LISTA NEGRA: Exclusión quirúrgica de cargos operativos menores
+    # 3. LISTA NEGRA: Exclusión de cargos operativos menores
     lista_negra = ["jefe", "analista"]
     condicion_exclusion_operativa = df['title_lower'].apply(
         lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
@@ -44,10 +43,7 @@ def limpiar_y_filtrar(df):
     condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
     condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
     
-    # Filtrado lógico y consolidación del set ejecutivo final
     df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion_operativa & ~condicion_exclusion_admin].copy()
-    
-    # Remoción absoluta de duplicados redundantes entre portales
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
     print(f"Empleos finales que pasaron el filtro ejecutivo: {len(df_filtrado)}")
@@ -56,14 +52,13 @@ def limpiar_y_filtrar(df):
 def buscar_linkedin():
     try:
         print("Consultando LinkedIn (Filtro Ejecutivo)...")
-        # Query nativa limpia compatible con los servidores de LinkedIn
         query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"'
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term=query_lk,
             location="Santiago, Chile",
-            results_wanted=40,
-            hours_old=168,
+            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
+            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -75,13 +70,12 @@ def buscar_linkedin():
 def buscar_indeed_especifico():
     try:
         print("Consultando Indeed Objetivo (Búsqueda de la vacante de Administración y Finanzas)...")
-        # Forzamos una query plana sin operadores de paréntesis que confundan al rastreador de Indeed
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term="Gerente Administracion Finanzas Santiago",
             location="Santiago, Chile",
-            results_wanted=30,
-            hours_old=48,
+            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
+            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -97,8 +91,8 @@ def buscar_portales_locales_generico():
             site_name=["indeed"],
             search_term="Gerente Santiago",
             location="Santiago, Chile",
-            results_wanted=40,
-            hours_old=48,
+            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
+            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -117,7 +111,7 @@ def enviar_correo(df):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Alerta Diaria Consolidada: Vacantes Ejecutivas Santiago"
+    msg["Subject"] = "Alerta Semanal Consolidada: Vacantes Ejecutivas Santiago"
     msg["From"] = sender_email
     msg["To"] = receiver_email
 
@@ -125,8 +119,8 @@ def enviar_correo(df):
         html = """
         <html>
         <body>
-            <h2>Alerta Ejecutiva Diaria</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes de Alta Dirección bajo tus criterios en las últimas 24 horas en Santiago.</p>
+            <h2>Alerta Ejecutiva Semanal</h2>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes de Alta Dirección bajo tus criterios en los últimos 7 días en Santiago.</p>
         </body>
         </html>
         """
@@ -144,8 +138,8 @@ def enviar_correo(df):
             </style>
         </head>
         <body>
-            <h2>Vacantes Ejecutivas Consolidadas - Santiago</h2>
-            <p>Reporte unificado limpio de cargos operativos (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <h2>Vacantes Ejecutivas Consolidadas Semanales - Santiago</h2>
+            <p>Reporte unificado amplio de historial extendido (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
@@ -171,12 +165,12 @@ def enviar_correo(df):
     for intento in range(1, max_intentos + 1):
         try:
             print(f"Estableciendo conexión SSL directa por IP de Google 74.125.142.108:465 (Intento {intento}/{max_intentos})...")
-            server = smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20)
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
-            server.quit()
-            print("¡Correo entregado con éxito a tu bandeja de entrada!")
-            break
+            with smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20) as server:
+                server.login(sender_email, sender_password)
+                server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+                server.quit()
+                print("¡Correo entregado con éxito a tu bandeja de entrada!")
+                break
         except Exception as e:
             print(f"Intento {intento} falló debido a problemas de red: {e}")
             if intento < max_intentos:
@@ -187,7 +181,6 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción de vacantes unificada...")
     
-    # Ejecución de los 3 canales paralelos para resguardar la captura
     df_lk = buscar_linkedin()
     df_ind_obj = buscar_indeed_especifico()
     df_ind_gen = buscar_portales_locales_generico()
