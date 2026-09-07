@@ -59,13 +59,13 @@ def buscar_linkedin():
 def buscar_portales_locales():
     try:
         print("Consultando Indeed (Laborum, Chiletrabajos, Trabajando)...")
-        # Simplificamos el término de búsqueda para Indeed eliminando operadores complejos que rompen su API
+        # Query simplificada sin operadores lógicos pesados para no bloquear el motor regional
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term='Gerente Santiago',
             location="Santiago, Chile",
             results_wanted=40,
-            hours_old=48, # Ventana más amplia para portales locales
+            hours_old=48,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -94,7 +94,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2 style="color: #1A365D;">Reporte Ejecutivo Diario</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes directivas en las últimas 24 horas para Santiago.</p>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes ejecutivas en las últimas 24 horas para Santiago.</p>
         </body>
         </html>
         """
@@ -158,12 +158,13 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción unificada...")
     
-    # Forzamos capturas en bloques independientes con manejo de errores interno
+    # Búsquedas independientes con control de errores interno
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # Consolidación segura resguardando los datos pase lo que pase
+    # Corrección de sintaxis: Inicialización limpia de la lista
     lista_dfs =
+    
     if not df_lk.empty:
         lista_dfs.append(df_lk)
     if not df_locales.empty:
