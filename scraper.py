@@ -13,61 +13,61 @@ def remover_tildes(texto):
 
 def limpiar_y_filtrar(df):
     if df is None or df.empty:
+        print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
+    # Filtros nativos de tu código
+    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas"]
+    df['title_lower'] = df['title'].str.lower().apply(remover_tildes)
     
-    df['title_clean'] = df['title'].apply(remover_tildes).str.lower()
-    condicion_puesto = df['title_clean'].apply(
+    condicion_puesto = df['title_lower'].apply(
         lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    df['location_clean'] = df['location'].apply(remover_tildes).str.lower()
-    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
-    condicion_ciudad = df['location_clean'].apply(
+    df['location_lower'] = df['location'].str.lower().apply(remover_tildes)
+    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia']
+    condicion_ciudad = df['location_lower'].apply(
         lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
     )
     
     df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Vacantes definitivas que pasaron el filtro: {len(df_filtrado)}")
-    return df_filtrado.drop(columns=['title_clean', 'location_clean'], errors='ignore')
+    print(f"Empleos finales que pasaron el filtro: {len(df_filtrado)}")
+    return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
 
 def buscar_linkedin():
     try:
         print("Consultando LinkedIn (Filtro 24h)...")
         jobs = scrape_jobs(
             site_name=["linkedin"],
-            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
+            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
             location="Santiago, Chile",
-            results_wanted=40,
+            results_wanted=30,
             hours_old=24,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
-            print(f"LinkedIn devolvió {len(jobs)} resultados en bruto.")
-            return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
+            return jobs[['title', 'company', 'job_url', 'location']].copy()
     except Exception as e:
-        print(f"Error aislado en la extracción de LinkedIn: {e}")
+        print(f"Aviso: LinkedIn no arrojó resultados en este ciclo: {e}")
     return pd.DataFrame()
 
 def buscar_portales_locales():
     try:
-        print("Consultando Indeed (Laborum, Chiletrabajos, Trabajando)...")
+        print("Consultando Indeed (Agregador de Laborum, Chiletrabajos, Trabajando)...")
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term='Gerente Santiago',
             location="Santiago, Chile",
-            results_wanted=40,
-            hours_old=48,
+            results_wanted=30,
+            hours_old=48, # Ventana más amplia para estabilizar el motor local
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
-            print(f"Indeed devolvió {len(jobs)} resultados en bruto.")
-            return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
+            return jobs[['title', 'company', 'job_url', 'location']].copy()
     except Exception as e:
-        print(f"Error aislado en la extracción de Indeed: {e}")
+        print(f"Aviso: El motor regional Indeed no respondió: {e}")
     return pd.DataFrame()
 
 def enviar_correo(df):
@@ -76,7 +76,7 @@ def enviar_correo(df):
     receiver_email = os.environ.get("RECEIVER_EMAIL")
     
     if not sender_email or not sender_password or not receiver_email:
-        print("CRÍTICO: Faltan variables de entorno en GitHub Secrets.")
+        print("CRÍTICO: Faltan variables de entorno en los Secrets de GitHub.")
         return
 
     msg = MIMEMultipart("alternative")
@@ -88,8 +88,8 @@ def enviar_correo(df):
         html = """
         <html>
         <body>
-            <h2 style="color: #1A365D;">Reporte Ejecutivo Diario</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes ejecutivas en las últimas 24 horas para Santiago.</p>
+            <h2>Alerta Ejecutiva Diaria</h2>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes bajo tus criterios en las últimas 24 horas en Santiago.</p>
         </body>
         </html>
         """
@@ -100,41 +100,29 @@ def enviar_correo(df):
             <meta charset="utf-8">
             <style>
                 table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
-                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; font-size: 13px; }
-                th { background-color: #1A365D; color: white; font-size: 14px; }
+                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+                th { background-color: #1A365D; color: white; }
                 tr:hover { background-color: #f5f5f5; }
                 a { color: #2B6CB0; text-decoration: none; font-weight: bold; }
-                .portal-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-                .linkedin-badge { background-color: #EBF8FF; color: #2B6CB0; }
-                .indeed-badge { background-color: #E2E8F0; color: #2D3748; }
             </style>
         </head>
         <body>
-            <h2 style="color: #1A365D;">Vacantes Ejecutivas Consolidadas - Santiago</h2>
-            <p>Reporte unificado multiportal (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <h2>Vacantes Ejecutivas Consolidadas - Santiago</h2>
+            <p>Reporte unificado (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
                     <th>Empresa</th>
                     <th>Ubicación</th>
-                    <th>Origen</th>
-                    <th>Acción</th>
+                    <th>Enlace</th>
                 </tr>
         """
         for _, row in df.iterrows():
-            origin = str(row.get('site', 'Enlace')).lower()
-            
-            if "linkedin" in origin:
-                badge_html = '<span class="portal-badge linkedin-badge">linkedin</span>'
-            else:
-                badge_html = '<span class="portal-badge indeed-badge">portal local</span>'
-
             html += f"""
                 <tr>
                     <td><b>{row['title']}</b></td>
                     <td>{row['company']}</td>
-                    <td>{row.get('location', 'Santiago, RM')}</td>
-                    <td>{badge_html}</td>
+                    <td>{row.get('location', 'Santiago, Chile')}</td>
                     <td><a href="{row['job_url']}" target="_blank">Ver Postulación</a></td>
                 </tr>
             """
@@ -142,40 +130,36 @@ def enviar_correo(df):
 
     msg.attach(MIMEText(html, "html", "utf-8"))
 
+    # TU CANAL DE ENVÍO ORIGINAL (PUERTO 465)
     try:
-        # ARQUITECTURA DE CONEXIÓN ROBUSTA: Uso de STARTTLS en puerto 587 para evitar bloqueos DNS en la nube
-        print("Abriendo canal de comunicación SMTP (Puerto 587)...")
-        server = smtplib.SMTP("://gmail.com", 587, timeout=30)
-        server.ehlo()
-        print("Activando capa de cifrado seguro STARTTLS...")
-        server.starttls()
-        server.ehlo()
-        print("Autenticando credenciales cifradas con Google...")
-        server.login(sender_email, sender_password)
-        print("Transmitiendo el correo electrónico empaquetado...")
-        server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
-        server.quit()
-        print("¡Correo consolidado enviado con éxito!")
+        print("Estableciendo conexión SSL directa por puerto 465...")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            print("Autenticando con Google Mail...")
+            server.login(sender_email, sender_password)
+            print("Enviando correo...")
+            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+        print("¡Correo entregado con éxito a tu bandeja de entrada!")
     except Exception as e:
         print(f"Error crítico en el canal de envío SMTP: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando extracción unificada...")
+    print("Iniciando extracción de vacantes...")
     
+    # Consultas independientes blindadas ante caídas
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
+    # Consolidación segura
     lista_dfs = []
-    
     if not df_lk.empty:
         lista_dfs.append(df_lk)
     if not df_locales.empty:
         lista_dfs.append(df_locales)
         
-    if len(lista_dfs) > 0:
-        df_total = pd.concat(lista_dfs, ignore_index=True)
-        df_final = limpiar_y_filtrar(df_total)
+    if lista_dfs:
+        df_consolidado = pd.concat(lista_dfs, ignore_index=True)
+        df_final = limpiar_y_filtrar(df_consolidado)
         enviar_correo(df_final)
     else:
-        print("Ambas búsquedas finalizaron vacías.")
+        print("Todas las búsquedas finalizaron vacías.")
         enviar_correo(pd.DataFrame())
