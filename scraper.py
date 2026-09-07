@@ -7,133 +7,6 @@ from jobspy import scrape_jobs
 
 def limpiar_y_filtrar(df):
     if df is None or df.empty:
-        print("El DataFrame original llegó vacío de la búsqueda.")
-        return pd.DataFrame()
-    
-    # Imprimir en los logs de GitHub cuántos empleos se encontraron en bruto
-    print(f"Empleos encontrados en bruto por JobSpy: {len(df)}")
-    
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas"]
-    df['title_lower'] = df['title'].str.lower()
-    
-    condicion_puesto = df['title_lower'].apply(
-        lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
-    )
-    
-    # Flexibilizamos la ubicación: Si contiene Santiago, Chile, Metropolitana, Las Condes o Providencia
-    df['location_lower'] = df['location'].str.lower()
-    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia']
-    condicion_ciudad = df['location_lower'].apply(
-        lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
-    )
-    
-    df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
-    print(f"Empleos que pasaron el filtro final: {len(df_filtrado)}")
-    return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
-
-def buscar_linkedin():
-    try:
-        jobs = scrape_jobs(
-            site_name=["linkedin"],
-            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
-            location="Santiago, Chile",
-            results_wanted=30,
-            hours_old=72,  # Dejamos 3 días para asegurar volumen en la prueba
-            country_indeed="chile"
-        )
-        return jobs
-    except Exception as e:
-        print(f"Error extrayendo de LinkedIn: {e}")
-        return pd.DataFrame()
-
-def enviar_correo(df, mensaje_extra=""):
-    sender_email = os.environ.get("SMTP_EMAIL")
-    sender_password = os.environ.get("SMTP_PASSWORD")
-    receiver_email = os.environ.get("RECEIVER_EMAIL")
-    
-    if not sender_email or not sender_password or not receiver_email:
-        print(f"CRÍTICO: Faltan variables de entorno. SMTP_EMAIL: {bool(sender_email)}, SMTP_PASSWORD: {bool(sender_password)}, RECEIVER_EMAIL: {bool(receiver_email)}")
-        return
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Reporte de Diagnóstico - Alerta de Empleos"
-    msg["From"] = sender_email
-    msg["To"] = receiver_email
-
-    # FORZAMOS que envíe correo aunque esté vacío para verificar la conexión SMTP
-    if df.empty:
-        html = f"""
-        <html>
-        <body>
-            <h2>Diagnóstico: Conexión SMTP Exitosa</h2>
-            <p>El script funciona y se conecta a tu correo, pero la búsqueda en LinkedIn no arrojó resultados que pasaran los filtros hoy.</p>
-            <p><b>Detalles adicionales:</b> {mensaje_extra}</p>
-        </body>
-        </html>
-        """
-    else:
-        html = """
-        <html>
-        <head>
-            <style>
-                table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
-                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
-                th { background-color: #1A365D; color: white; }
-            </style>
-        </head>
-        <body>
-            <h2>Vacantes Encontradas (Prueba de Diagnóstico)</h2>
-            <table>
-                <tr><th>Puesto</th><th>Empresa</th><th>Ubicación</th><th>Enlace</th></tr>
-        """
-        for _, row in df.iterrows():
-            html += f"""
-                <tr>
-                    <td>{row['title']}</td>
-                    <td>{row['company']}</td>
-                    <td>{row.get('location', 'No especificada')}</td>
-                    <td><a href="{row['job_url']}" target="_blank">Ver Postulación</a></td>
-                </tr>
-            """
-        html += "</table></body></html>"
-
-    msg.attach(MIMEText(html, "html"))
-
-try:
-        # Cambiamos a la conexión estándar STARTTLS por el puerto 587, que es más estable en entornos de nube virtualizados
-        print("Conectando al servidor de correo de Google...")
-        server = smtplib.SMTP("://gmail.com", 587)
-        server.ehlo()
-        server.starttls() # Activa la capa de seguridad encriptada
-        server.ehlo()
-        
-        print("Autenticando credenciales...")
-        server.login(sender_email, sender_password)
-        
-        print("Enviando mensaje...")
-        server.sendmail(sender_email, receiver_email, msg.as_string())
-        server.close()
-        print("¡Correo enviado exitosamente!")
-    except Exception as e:
-        print(f"Error de conexión SMTP al enviar: {e}")
-
-if __name__ == "__main__":
-    print("Iniciando extracción de vacantes...")
-    df_linkedin = buscar_linkedin()
-    
-    msg_log = "Búsqueda finalizada."
-    if df_linkedin is not None and not df_linkedin.empty:
-        msg_log = f"Jobspy devolvió {len(df_linkedin)} filas globales."
-        
-    df_final = limpiar_y_filtrar(df_linkedin)
-    enviar_correo(df_final, msg_log)
-import os
-import yagmail
-import pandas as pd
-from jobspy import scrape_jobs
-
-def limpiar_y_filtrar(df):
-    if df is None or df.empty:
         print("El DataFrame original llegó vacío.")
         return pd.DataFrame()
     
@@ -163,7 +36,7 @@ def buscar_linkedin():
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
             location="Santiago, Chile",
             results_wanted=30,
-            hours_old=24,  # Volvemos a las 24 horas estándar para recibir solo lo nuevo del día
+            hours_old=24,  # Filtro estándar de las últimas 24 horas
             country_indeed="chile"
         )
         return jobs
@@ -177,49 +50,68 @@ def enviar_correo(df):
     receiver_email = os.environ.get("RECEIVER_EMAIL")
     
     if not sender_email or not sender_password or not receiver_email:
-        print("Faltan variables de entorno en Secrets.")
+        print("CRÍTICO: Faltan variables de entorno en los Secrets de GitHub.")
         return
 
-    # Si no hay vacantes nuevas hoy, generamos un aviso limpio en lugar de una tabla vacía
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Alerta Diaria de Vacantes Ejecutivas - Santiago"
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+
     if df.empty:
-        html_content = """
-        <h2>Alerta Ejecutiva Diaria</h2>
-        <p>No se registraron nuevas vacantes directivas en LinkedIn bajo tus criterios en las últimas 24 horas en Santiago.</p>
+        html = """
+        <html>
+        <body>
+            <h2>Alerta Ejecutiva Diaria</h2>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes en LinkedIn bajo tus criterios en las últimas 24 horas en Santiago.</p>
+        </body>
+        </html>
         """
     else:
-        html_content = """
-        <h2>Vacantes Ejecutivas Seleccionadas para Santiago</h2>
-        <table border="1" cellpadding="8" style="border-collapse: collapse; font-family: Arial, sans-serif; width: 100%;">
-            <tr style="background-color: #1A365D; color: white;">
-                <th>Puesto</th>
-                <th>Empresa</th>
-                <th>Ubicación</th>
-                <th>Enlace</th>
-            </tr>
+        html = """
+        <html>
+        <head>
+            <style>
+                table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; }
+                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }
+                th { background-color: #1A365D; color: white; }
+                tr:hover { background-color: #f5f5f5; }
+                a { color: #2B6CB0; text-decoration: none; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <h2>Vacantes Ejecutivas del Día - Santiago</h2>
+            <table>
+                <tr>
+                    <th>Puesto</th>
+                    <th>Empresa</th>
+                    <th>Ubicación</th>
+                    <th>Enlace</th>
+                </tr>
         """
         for _, row in df.iterrows():
-            html_content += f"""
-            <tr>
-                <td><b>{row['title']}</b></td>
-                <td>{row['company']}</td>
-                <td>{row.get('location', 'Santiago, Chile')}</td>
-                <td><a href="{row['job_url']}" style="color: #2B6CB0; text-weight: bold;">Postular</a></td>
-            </tr>
+            html += f"""
+                <tr>
+                    <td>{row['title']}</td>
+                    <td>{row['company']}</td>
+                    <td>{row.get('location', 'Santiago, Chile')}</td>
+                    <td><a href="{row['job_url']}" target="_blank">Ver Postulación</a></td>
+                </tr>
             """
-        html_content += "</table>"
+        html += "</table></body></html>"
+
+    msg.attach(MIMEText(html, "html"))
 
     try:
-        print("Iniciando envío seguro con yagmail...")
-        # yagmail gestiona automáticamente los puertos, sockets y encriptación de Google
-        yag = yagmail.SMTP(user=sender_email, password=sender_password)
-        yag.send(
-            to=receiver_email,
-            subject="Alerta Diaria de Vacantes Ejecutivas - Santiago",
-            contents=html_content
-        )
-        print("¡Correo entregado con éxito a la bandeja de entrada!")
+        print("Estableciendo conexión SSL directa por puerto 465...")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            print("Autenticando con Google Mail...")
+            server.login(sender_email, sender_password)
+            print("Enviando correo...")
+            server.sendmail(sender_email, receiver_email, msg.as_string())
+        print("¡Correo entregado con éxito a tu bandeja de entrada!")
     except Exception as e:
-        print(f"Error crítico en yagmail: {e}")
+        print(f"Error crítico en el canal de envío SMTP: {e}")
 
 if __name__ == "__main__":
     print("Iniciando extracción de vacantes...")
