@@ -99,11 +99,21 @@ def enviar_correo(df, mensaje_extra=""):
 
     msg.attach(MIMEText(html, "html"))
 
-    try:
-        with smtplib.SMTP_SSL("://gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string())
-        print("Correo enviado exitosamente.")
+try:
+        # Cambiamos a la conexión estándar STARTTLS por el puerto 587, que es más estable en entornos de nube virtualizados
+        print("Conectando al servidor de correo de Google...")
+        server = smtplib.SMTP("://gmail.com", 587)
+        server.ehlo()
+        server.starttls() # Activa la capa de seguridad encriptada
+        server.ehlo()
+        
+        print("Autenticando credenciales...")
+        server.login(sender_email, sender_password)
+        
+        print("Enviando mensaje...")
+        server.sendmail(sender_email, receiver_email, msg.as_string())
+        server.close()
+        print("¡Correo enviado exitosamente!")
     except Exception as e:
         print(f"Error de conexión SMTP al enviar: {e}")
 
