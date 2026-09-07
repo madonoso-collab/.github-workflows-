@@ -26,39 +26,48 @@ def limpiar_y_filtrar(df):
         lambda x: any(rango in str(x) for rango in rangos_ejecutivos) if pd.notnull(x) else False
     )
     
-    # 2. LISTA BLANCA DE ESPECIALIDADES CORPORATIVAS (Obligatorio)
-    especialidades = ["general", "finanzas", "administracion", "legal", "ti", "comercial"]
-    condicion_especialidad = df['title_lower'].apply(
-        lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
-    )
+    # 2. FILTRADO POR COINCIDENCIA DE NICHO ESTRICTO (CORRECCIÓN CRÍTICA)
+    # Evaluamos condiciones por duplas exactas para que el área comercial u operacional no contamine el reporte
+    es_general = df['title_lower'].str.contains("general", na=False)
+    es_financiero = df['title_lower'].str.contains("finan", na=False) | df['title_lower'].str.contains("cfo", na=False)
+    es_soporte_clave = df['title_lower'].str.contains("legal", na=False) | df['title_lower'].str.contains("ti", na=False)
     
-    # 3. LISTA NEGRA: Exclusión de cargos operativos menores
-    lista_negra = ["jefe", "analista"]
-    condicion_exclusion_operativa = df['title_lower'].apply(
+    # El puesto debe pertenecer estrictamente a una de tus tres áreas de interés ejecutivo
+    condicion_especialidad_estricta = es_general | es_financiero | es_soporte_clave
+    
+    # 3. LISTA NEGRA: Exclusión de cargos operativos y áreas no solicitadas (Veto a Comercial y Operaciones puros)
+    lista_negra = ["jefe", "analista", "comercial", "operaciones", "ventas", "marketing", "produccion", "excellence"]
+    
+    # SALVOCONDUCTO EXTRA: Si el título dice "Gerente General" pero menciona comercial, lo salvamos; si es "Gerente Comercial" a secas, se va.
+    condicion_excluir_automatica = df['title_lower'].apply(
         lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
     )
+    condicion_salvoconducto_general = df['title_lower'].str.contains("general", na=False)
     
-    # 4. PROTECCIÓN DE RANGO: Evita que el término "administrador" de contratos vete una Gerencia legítima
+    condicion_exclusion_final = condicion_excluir_automatica & ~condicion_salvoconducto_general
+    
+    # 4. PROTECCIÓN ADMINISTRADOR
     condicion_es_administrador = df['title_lower'].str.contains("administrador", na=False)
     condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
     condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
     
-    df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion_operativa & ~condicion_exclusion_admin].copy()
+    # Consolidación lógica final de alta exigencia directiva
+    df_filtrado = df[condicion_rango & condicion_especialidad_estricta & ~condicion_exclusion_final & ~condicion_exclusion_admin].copy()
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Empleos finales que pasaron el filtro ejecutivo: {len(df_filtrado)}")
+    print(f"Empleos finales que pasaron el filtro ejecutivo estricto: {len(df_filtrado)}")
     return df_filtrado.drop(columns=['title_lower'], errors='ignore')
 
 def buscar_linkedin():
     try:
         print("Consultando LinkedIn (Filtro Ejecutivo)...")
-        query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"'
+        query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente de Administracion" OR "Gerente Administracion"'
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term=query_lk,
             location="Santiago, Chile",
-            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
-            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
+            results_wanted=200,  
+            hours_old=168,       
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -69,13 +78,13 @@ def buscar_linkedin():
 
 def buscar_indeed_especifico():
     try:
-        print("Consultando Indeed Objetivo (Búsqueda de la vacante de Administración y Finanzas)...")
+        print("Consultando Indeed Objetivo (Administración y Finanzas / CFO)...")
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term="Gerente Administracion Finanzas Santiago",
             location="Santiago, Chile",
-            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
-            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
+            results_wanted=200,  
+            hours_old=168,       
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -86,13 +95,13 @@ def buscar_indeed_especifico():
 
 def buscar_portales_locales_generico():
     try:
-        print("Consultando Agregador General (Laborum, Chiletrabajos, Trabajando)...")
+        print("Consultando Agregador General (Búsqueda de respaldo General / Finanzas)...")
         jobs = scrape_jobs(
             site_name=["indeed"],
-            search_term="Gerente Santiago",
+            search_term='"Gerente General" OR "Gerente Finanzas" Santiago',
             location="Santiago, Chile",
-            results_wanted=200,  # AMPLIADO A 200 RESULTADOS
-            hours_old=168,       # Ajustado para barrido histórico semanal (7 días)
+            results_wanted=200,  
+            hours_old=168,       
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -111,7 +120,7 @@ def enviar_correo(df):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Alerta Semanal Consolidada: Vacantes Ejecutivas Santiago"
+    msg["Subject"] = "Alerta Consolidada: Alta Gerencia y Finanzas Santiago"
     msg["From"] = sender_email
     msg["To"] = receiver_email
 
@@ -119,8 +128,8 @@ def enviar_correo(df):
         html = """
         <html>
         <body>
-            <h2>Alerta Ejecutiva Semanal</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes de Alta Dirección bajo tus criterios en los últimos 7 días en Santiago.</p>
+            <h2>Alerta Ejecutiva Filtrada</h2>
+            <p>El sistema realizó el barrido masivo, pero no se publicaron nuevas vacantes puras de Gerencia General, CFO o Finanzas en el rango de tiempo seleccionado para Santiago.</p>
         </body>
         </html>
         """
@@ -138,8 +147,8 @@ def enviar_correo(df):
             </style>
         </head>
         <body>
-            <h2>Vacantes Ejecutivas Consolidadas Semanales - Santiago</h2>
-            <p>Reporte unificado amplio de historial extendido (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <h2>Vacantes Exclusivas de Alta Dirección y Finanzas - Santiago</h2>
+            <p>Reporte unificado depurado de áreas comerciales u operativas:</p>
             <table>
                 <tr>
                     <th>Puesto</th>
@@ -179,7 +188,7 @@ def enviar_correo(df):
                 print("Error crítico definitivo en el canal de envío SMTP tras 3 intentos.")
 
 if __name__ == "__main__":
-    print("Iniciando extracción de vacantes unificada...")
+    print("Iniciando extracción de vacantes unificada de alta pureza...")
     
     df_lk = buscar_linkedin()
     df_ind_obj = buscar_indeed_especifico()
