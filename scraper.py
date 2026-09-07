@@ -13,11 +13,10 @@ def remover_tildes(texto):
 
 def limpiar_y_filtrar(df):
     if df is None or df.empty:
-        print("El DataFrame de búsqueda llegó vacío.")
         return pd.DataFrame()
     
     # Palabras clave solicitadas para cargos ejecutivos
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
+    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "]
     
     # Filtrado por puesto (limpiando tildes y pasando a minúsculas)
     df['title_clean'] = df['title'].apply(remover_tildes).str.lower()
@@ -37,12 +36,11 @@ def limpiar_y_filtrar(df):
     # Eliminar duplicados si una vacante aparece en más de un portal simultáneamente
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Vacantes definitivas que pasaron el filtro: {len(df_filtrado)}")
     return df_filtrado.drop(columns=['title_clean', 'location_clean'], errors='ignore')
 
 def buscar_linkedin():
     try:
-        print("Consultando LinkedIn (Filtro 24h estricto)...")
+        print("Consultando LinkedIn (Filtro 24h)...")
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
@@ -52,30 +50,30 @@ def buscar_linkedin():
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
+            print(f"LinkedIn devolvió {len(jobs)} resultados en bruto.")
             return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
-        return pd.DataFrame()
     except Exception as e:
-        print(f"Error en extracción de LinkedIn: {e}")
-        return pd.DataFrame()
+        print(f"Error aislado en la extracción de LinkedIn: {e}")
+    return pd.DataFrame()
 
 def buscar_portales_locales():
     try:
-        print("Consultando Indeed (Agregador de Laborum, Chiletrabajos y Trabajando)...")
-        # Usamos 48h para Indeed para evitar que su formato ambiguo de fechas deje en cero la búsqueda
+        print("Consultando Indeed (Laborum, Chiletrabajos, Trabajando)...")
+        # Simplificamos el término de búsqueda para Indeed eliminando operadores complejos que rompen su API
         jobs = scrape_jobs(
             site_name=["indeed"],
-            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"',
+            search_term='Gerente Santiago',
             location="Santiago, Chile",
-            results_wanted=50,
-            hours_old=48, 
+            results_wanted=40,
+            hours_old=48, # Ventana más amplia para portales locales
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
+            print(f"Indeed devolvió {len(jobs)} resultados en bruto.")
             return jobs[['title', 'company', 'job_url', 'location', 'site']].copy()
-        return pd.DataFrame()
     except Exception as e:
-        print(f"Error en extracción de portales locales: {e}")
-        return pd.DataFrame()
+        print(f"Error aislado en la extracción de Indeed: {e}")
+    return pd.DataFrame()
 
 def enviar_correo(df):
     sender_email = os.environ.get("SMTP_EMAIL")
@@ -88,7 +86,7 @@ def enviar_correo(df):
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Alerta Diaria Consolidada: Vacantes Ejecutivas Santiago"
-    msg["From"] = sender_email
+    msg["] = sender_email
     msg["To"] = receiver_email
 
     if df.empty:
@@ -96,7 +94,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2 style="color: #1A365D;">Reporte Ejecutivo Diario</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes en los portales monitoreados en el último ciclo para Santiago.</p>
+            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes directivas en las últimas 24 horas para Santiago.</p>
         </body>
         </html>
         """
@@ -158,14 +156,23 @@ def enviar_correo(df):
         print(f"Error crítico en el canal de envío SMTP: {e}")
 
 if __name__ == "__main__":
-    print("Iniciando extracción unificada independiente...")
+    print("Iniciando extracción unificada...")
     
-    # Forzamos las búsquedas por separado para que Indeed no rompa las fechas de LinkedIn
+    # Forzamos capturas en bloques independientes con manejo de errores interno
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # Consolidamos de manera segura
-    df_total = pd.concat([df_lk, df_locales], ignore_index=True)
-    
-    df_final = limpiar_y_filtrar(df_total)
-    enviar_correo(df_final)
+    # Consolidación segura resguardando los datos pase lo que pase
+    lista_dfs =
+    if not df_lk.empty:
+        lista_dfs.append(df_lk)
+    if not df_locales.empty:
+        lista_dfs.append(df_locales)
+        
+    if lista_dfs:
+        df_total = pd.concat(lista_dfs, ignore_index=True)
+        df_final = limpiar_y_filtrar(df_total)
+        enviar_correo(df_final)
+    else:
+        print("Ambas búsquedas finalizaron vacías.")
+        enviar_correo(pd.DataFrame())
