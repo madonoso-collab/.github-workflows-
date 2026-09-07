@@ -15,16 +15,14 @@ def limpiar_y_filtrar(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
-    # Lista de términos solicitados corregida y cerrada
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "]
+    # LISTA CORREGIDA: Sin comillas sueltas ni caracteres truncados
+    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "general"]
     
-    # Filtrado por puesto (limpiando tildes y pasando a minúsculas)
     df['title_clean'] = df['title'].apply(remover_tildes).str.lower()
     condicion_puesto = df['title_clean'].apply(
         lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    # Filtrado por ubicación (flexible para comunas de Santiago y RM)
     df['location_clean'] = df['location'].apply(remover_tildes).str.lower()
     comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
     condicion_ciudad = df['location_clean'].apply(
@@ -32,10 +30,9 @@ def limpiar_y_filtrar(df):
     )
     
     df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
-    
-    # Eliminar duplicados si una vacante aparece en más de un portal simultáneamente
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
+    print(f"Vacantes definitivas que pasaron el filtro: {len(df_filtrado)}")
     return df_filtrado.drop(columns=['title_clean', 'location_clean'], errors='ignore')
 
 def buscar_linkedin():
@@ -59,7 +56,6 @@ def buscar_linkedin():
 def buscar_portales_locales():
     try:
         print("Consultando Indeed (Laborum, Chiletrabajos, Trabajando)...")
-        # Query simplificada para el motor regional de Indeed Chile
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term='Gerente Santiago',
@@ -86,7 +82,7 @@ def enviar_correo(df):
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Alerta Diaria Consolidada: Vacantes Ejecutivas Santiago"
-    msg["] = sender_email
+    msg["From"] = sender_email
     msg["To"] = receiver_email
 
     if df.empty:
@@ -158,19 +154,18 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción unificada...")
     
-    # Búsquedas independientes con control de errores interno
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # Inicialización correcta de la lista
-    lista_dfs =
+    # LISTA CORREGIDA: Inicialización de la lista de DataFrames con corchetes válidos
+    lista_dfs = []
     
     if not df_lk.empty:
         lista_dfs.append(df_lk)
     if not df_locales.empty:
         lista_dfs.append(df_locales)
         
-    if lista_dfs:
+    if len(lista_dfs) > 0:
         df_total = pd.concat(lista_dfs, ignore_index=True)
         df_final = limpiar_y_filtrar(df_total)
         enviar_correo(df_final)
