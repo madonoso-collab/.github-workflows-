@@ -29,7 +29,7 @@ def buscar_linkedin():
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
             location="Santiago, Chile",
             results_wanted=30,
-            hours_old=24,
+            hours_old=72,
             country_indeed="chile"
         )
         return jobs
