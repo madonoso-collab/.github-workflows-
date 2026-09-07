@@ -1,5 +1,6 @@
 import os
 import smtplib
+import time
 import unicodedata
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -9,7 +10,7 @@ from jobspy import scrape_jobs
 def remover_tildes(texto):
     if not isinstance(texto, str):
         return ""
-    # Normaliza y elimina acentos de forma nativa tanto para mayúsculas como minúsculas
+    # Elimina tildes de forma nativa soportando variaciones Unicode complejas
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_y_filtrar(df):
@@ -17,10 +18,13 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # Espectro ampliado de palabras clave ejecutivas de control
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "director", "subgerente", "general", "chief"]
+    # Lista ampliada que incluye términos con y sin tildes para doble seguridad
+    keywords = [
+        "gerente", "ceo", "cfo", "administracion", "administracion", 
+        "finanzas", "general", "subgerente", "director", "dirección"
+    ]
     
-    # CORRECCIÓN CRÍTICA: Primero removemos tildes y luego pasamos a minúsculas
+    # BLINDAJE: Primero removemos tildes en el formato original y luego convertimos a minúsculas
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
     condicion_puesto = df['title_lower'].apply(
@@ -34,8 +38,6 @@ def limpiar_y_filtrar(df):
     )
     
     df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
-    
-    # Eliminamos duplicados basados en título y empresa para mantener el reporte limpio
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
     print(f"Empleos finales que pasaron el filtro: {len(df_filtrado)}")
@@ -44,12 +46,11 @@ def limpiar_y_filtrar(df):
 def buscar_linkedin():
     try:
         print("Consultando LinkedIn (Filtro 24h)...")
-        # Aseguramos todas las variantes clave en el buscador raíz de LinkedIn
         jobs = scrape_jobs(
             site_name=["linkedin"],
             search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente de Administracion"',
             location="Santiago, Chile",
-            results_wanted=50, # Aumentamos levemente el espectro de captura
+            results_wanted=40,
             hours_old=24,
             country_indeed="chile"
         )
@@ -66,7 +67,7 @@ def buscar_portales_locales():
             site_name=["indeed"],
             search_term='Gerente Santiago',
             location="Santiago, Chile",
-            results_wanted=50,
+            results_wanted=40,
             hours_old=48, 
             country_indeed="chile"
         )
@@ -136,14 +137,25 @@ def enviar_correo(df):
 
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    try:
-        print("Estableciendo conexión SSL directa por puerto 465...")
-        with smtplib.SMTP_SSL("://gmail.com", 465) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
-        print("¡Correo entregado con éxito a tu bandeja de entrada!")
-    except Exception as e:
-        print(f"Error crítico en el canal de envío SMTP: {e}")
+    # SISTEMA DE CONTROL DE CONEXIÓN CON REINTENTOS AUTOMÁTICOS (PUERTO 465)
+    max_intentos = 3
+    for intento in range(1, max_intentos + 1):
+        try:
+            print(f"Estableciendo conexión SSL directa por puerto 465 (Intento {intento}/{max_intentos})...")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
+                print("Autenticando con Google Mail...")
+                server.login(sender_email, sender_password)
+                print("Enviando correo...")
+                server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+            print("¡Correo entregado con éxito a tu bandeja de entrada!")
+            break  # Éxito, rompemos el bucle de reintentos
+        except Exception as e:
+            print(f"Intento {intento} falló debido a problemas de red: {e}")
+            if intento < max_intentos:
+                print("Esperando 5 segundos para reintentar debido a inestabilidad de DNS...")
+                time.sleep(5)
+            else:
+                print("Error crítico definitivo en el canal de envío SMTP tras 3 intentos.")
 
 if __name__ == "__main__":
     print("Iniciando extracción de vacantes...")
