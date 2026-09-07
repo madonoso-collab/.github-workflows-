@@ -9,6 +9,7 @@ from jobspy import scrape_jobs
 def remover_tildes(texto):
     if not isinstance(texto, str):
         return ""
+    # Normaliza y elimina acentos de forma nativa tanto para mayúsculas como minúsculas
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_y_filtrar(df):
@@ -16,21 +17,25 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # Filtros nativos de tu código
-    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas"]
-    df['title_lower'] = df['title'].str.lower().apply(remover_tildes)
+    # Espectro ampliado de palabras clave ejecutivas de control
+    keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "director", "subgerente", "general", "chief"]
+    
+    # CORRECCIÓN CRÍTICA: Primero removemos tildes y luego pasamos a minúsculas
+    df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
     condicion_puesto = df['title_lower'].apply(
         lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
     )
     
-    df['location_lower'] = df['location'].str.lower().apply(remover_tildes)
-    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia']
+    df['location_lower'] = df['location'].apply(remover_tildes).str.lower()
+    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
     condicion_ciudad = df['location_lower'].apply(
         lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
     )
     
     df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
+    
+    # Eliminamos duplicados basados en título y empresa para mantener el reporte limpio
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
     print(f"Empleos finales que pasaron el filtro: {len(df_filtrado)}")
@@ -39,11 +44,12 @@ def limpiar_y_filtrar(df):
 def buscar_linkedin():
     try:
         print("Consultando LinkedIn (Filtro 24h)...")
+        # Aseguramos todas las variantes clave en el buscador raíz de LinkedIn
         jobs = scrape_jobs(
             site_name=["linkedin"],
-            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas"',
+            search_term='"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente de Administracion"',
             location="Santiago, Chile",
-            results_wanted=30,
+            results_wanted=50, # Aumentamos levemente el espectro de captura
             hours_old=24,
             country_indeed="chile"
         )
@@ -60,8 +66,8 @@ def buscar_portales_locales():
             site_name=["indeed"],
             search_term='Gerente Santiago',
             location="Santiago, Chile",
-            results_wanted=30,
-            hours_old=48, # Ventana más amplia para estabilizar el motor local
+            results_wanted=50,
+            hours_old=48, 
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
@@ -130,13 +136,10 @@ def enviar_correo(df):
 
     msg.attach(MIMEText(html, "html", "utf-8"))
 
-    # TU CANAL DE ENVÍO ORIGINAL (PUERTO 465)
     try:
         print("Estableciendo conexión SSL directa por puerto 465...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            print("Autenticando con Google Mail...")
+        with smtplib.SMTP_SSL("://gmail.com", 465) as server:
             server.login(sender_email, sender_password)
-            print("Enviando correo...")
             server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
         print("¡Correo entregado con éxito a tu bandeja de entrada!")
     except Exception as e:
@@ -145,11 +148,9 @@ def enviar_correo(df):
 if __name__ == "__main__":
     print("Iniciando extracción de vacantes...")
     
-    # Consultas independientes blindadas ante caídas
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # Consolidación segura
     lista_dfs = []
     if not df_lk.empty:
         lista_dfs.append(df_lk)
