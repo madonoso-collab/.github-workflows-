@@ -10,7 +10,7 @@ from jobspy import scrape_jobs
 def remover_tildes(texto):
     if not isinstance(texto, str):
         return ""
-    # Descompone caracteres complejos (ej: Ó, ó) a sus formas base sin acentos (O, o)
+    # Transforma 'Ó' u 'ó' directamente a sus caracteres base estables 'O' u 'o'
     return "".join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_y_filtrar(df):
@@ -18,36 +18,36 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # Procesamiento de texto seguro (tildes fuera y minúsculas)
+    # Procesamiento unificado de texto en minúsculas y sin acentos
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
-    # 1. LISTA BLANCA DE RANGOS EJECUTIVOS (Obligatorio)
+    # 1. LISTA BLANCA DE RANGOS DE ALTA DIRECCIÓN (Obligatorio)
     rangos_ejecutivos = ["gerente", "ceo", "cfo", "subgerente", "director", "chief"]
     condicion_rango = df['title_lower'].apply(
         lambda x: any(rango in str(x) for rango in rangos_ejecutivos) if pd.notnull(x) else False
     )
     
-    # 2. LISTA BLANCA DE ESPECIALIDADES (Obligatorio)
+    # 2. LISTA BLANCA DE ESPECIALIDADES CORPORATIVAS (Obligatorio)
     especialidades = ["general", "finanzas", "administracion", "legal", "ti", "comercial"]
     condicion_especialidad = df['title_lower'].apply(
         lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
     )
     
-    # 3. LISTA NEGRA DE CARGOS OPERATIVOS (Exclusión estricta)
+    # 3. LISTA NEGRA: Exclusión quirúrgica de cargos operativos menores
     lista_negra = ["jefe", "analista"]
     condicion_exclusion_operativa = df['title_lower'].apply(
         lambda x: any(neg in str(x) for neg in lista_negra) if pd.notnull(x) else False
     )
     
-    # 4. SALVOCONDUCTO PARA ADMINISTRACIÓN: Asegura que "administrador" no borre una gerencia legítima
+    # 4. PROTECCIÓN DE RANGO: Evita que el término "administrador" de contratos vete una Gerencia legítima
     condicion_es_administrador = df['title_lower'].str.contains("administrador", na=False)
     condicion_es_gerente_admin = df['title_lower'].str.contains("gerente", na=False) & df['title_lower'].str.contains("administracion", na=False)
     condicion_exclusion_admin = condicion_es_administrador & ~condicion_es_gerente_admin
     
-    # Consolidación lógica de filtros
+    # Filtrado lógico y consolidación del set ejecutivo final
     df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion_operativa & ~condicion_exclusion_admin].copy()
     
-    # Eliminación definitiva de duplicados cruzados
+    # Remoción absoluta de duplicados redundantes entre portales
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
     print(f"Empleos finales que pasaron el filtro ejecutivo: {len(df_filtrado)}")
@@ -55,40 +55,56 @@ def limpiar_y_filtrar(df):
 
 def buscar_linkedin():
     try:
-        print("Consultando LinkedIn (Búsqueda por bloques de palabras clave)...")
-        # ESTRATEGIA EXPANSIVA: Quitamos las comillas rígidas "Gerente de Administracion" para abarcar todas las variantes
-        query_ejecutiva = '(Gerente OR Director OR Subgerente OR CEO OR CFO) AND (Administracion OR Finanzas OR General)'
-        
+        print("Consultando LinkedIn (Filtro Ejecutivo)...")
+        # Query nativa limpia compatible con los servidores de LinkedIn
+        query_lk = '"Gerente General" OR "CEO" OR "CFO" OR "Gerente de Finanzas" OR "Gerente Administracion"'
         jobs = scrape_jobs(
             site_name=["linkedin"],
-            search_term=query_ejecutiva,
+            search_term=query_lk,
             location="Santiago, Chile",
-            results_wanted=50,
+            results_wanted=40,
             hours_old=24,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
-            print(f"LinkedIn devolvió {len(jobs)} resultados en bruto.")
             return jobs[['title', 'company', 'job_url', 'location']].copy()
     except Exception as e:
-        print(f"Aviso: LinkedIn no arrojó resultados en este ciclo: {e}")
+        print(f"Aviso en LinkedIn: {e}")
     return pd.DataFrame()
 
-def buscar_portales_locales():
+def buscar_indeed_especifico():
     try:
-        print("Consultando Indeed (Agregador de Laborum, Chiletrabajos, Trabajando)...")
+        print("Consultando Indeed Objetivo (Búsqueda de la vacante de Administración y Finanzas)...")
+        # Forzamos una query plana sin operadores de paréntesis que confundan al rastreador de Indeed
         jobs = scrape_jobs(
             site_name=["indeed"],
-            search_term='Gerente Santiago',
+            search_term="Gerente Administracion Finanzas Santiago",
             location="Santiago, Chile",
-            results_wanted=50,
-            hours_old=48, 
+            results_wanted=30,
+            hours_old=48,
             country_indeed="chile"
         )
         if jobs is not None and not jobs.empty:
             return jobs[['title', 'company', 'job_url', 'location']].copy()
     except Exception as e:
-        print(f"Aviso: El motor regional Indeed no respondió: {e}")
+        print(f"Aviso en Indeed Objetivo: {e}")
+    return pd.DataFrame()
+
+def buscar_portales_locales_generico():
+    try:
+        print("Consultando Agregador General (Laborum, Chiletrabajos, Trabajando)...")
+        jobs = scrape_jobs(
+            site_name=["indeed"],
+            search_term="Gerente Santiago",
+            location="Santiago, Chile",
+            results_wanted=40,
+            hours_old=48,
+            country_indeed="chile"
+        )
+        if jobs is not None and not jobs.empty:
+            return jobs[['title', 'company', 'job_url', 'location']].copy()
+    except Exception as e:
+        print(f"Aviso en Agregador General: {e}")
     return pd.DataFrame()
 
 def enviar_correo(df):
@@ -155,12 +171,12 @@ def enviar_correo(df):
     for intento in range(1, max_intentos + 1):
         try:
             print(f"Estableciendo conexión SSL directa por IP de Google 74.125.142.108:465 (Intento {intento}/{max_intentos})...")
-            with smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20) as server:
-                server.login(sender_email, sender_password)
-                server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
-                server.quit()
-                print("¡Correo entregado con éxito a tu bandeja de entrada!")
-                break
+            server = smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20)
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
+            server.quit()
+            print("¡Correo entregado con éxito a tu bandeja de entrada!")
+            break
         except Exception as e:
             print(f"Intento {intento} falló debido a problemas de red: {e}")
             if intento < max_intentos:
@@ -169,16 +185,20 @@ def enviar_correo(df):
                 print("Error crítico definitivo en el canal de envío SMTP tras 3 intentos.")
 
 if __name__ == "__main__":
-    print("Iniciando extracción de vacantes...")
+    print("Iniciando extracción de vacantes unificada...")
     
+    # Ejecución de los 3 canales paralelos para resguardar la captura
     df_lk = buscar_linkedin()
-    df_locales = buscar_portales_locales()
+    df_ind_obj = buscar_indeed_especifico()
+    df_ind_gen = buscar_portales_locales_generico()
     
     lista_dfs = []
     if not df_lk.empty:
         lista_dfs.append(df_lk)
-    if not df_locales.empty:
-        lista_dfs.append(df_locales)
+    if not df_ind_obj.empty:
+        lista_dfs.append(df_ind_obj)
+    if not df_ind_gen.empty:
+        lista_dfs.append(df_ind_gen)
         
     if lista_dfs:
         df_consolidado = pd.concat(lista_dfs, ignore_index=True)
