@@ -2,12 +2,11 @@ name: Run Daily Job Scraper
 
 on:
   schedule:
-    # Se programa a las 8:13 AM hora de Chile. 
-    # El sistema nativo lo procesará de forma automatizada todas las mañanas.
+    # Se ejecutará automáticamente a las 8:13 AM hora de Chile todas las mañanas.
     - cron: '13 8 * * *'
       timezone: 'America/Santiago'
   
-  workflow_dispatch: # Mantenemos esto activo por si algún día quieres forzar la búsqueda manualmente
+  workflow_dispatch: # Nos permite seguir haciendo pruebas manuales con el botón
 
 jobs:
   run-scraper:
@@ -25,7 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install python-jobspy pandas
+        pip install python-jobspy pandas yagmail
 
     - name: Run Scraper Script
       env:
