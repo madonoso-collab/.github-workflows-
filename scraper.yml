@@ -2,9 +2,9 @@ name: Run Daily Job Scraper
 
 on:
   schedule:
-    # Se programa a las 8:00 AM hora de Chile. 
+    # Se programa a las 8:13 AM hora de Chile. 
     # El sistema nativo lo procesará de forma automatizada todas las mañanas.
-    - cron: '0 8 * * *'
+    - cron: '13 8 * * *'
       timezone: 'America/Santiago'
   
   workflow_dispatch: # Mantenemos esto activo por si algún día quieres forzar la búsqueda manualmente
