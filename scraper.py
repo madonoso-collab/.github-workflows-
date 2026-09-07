@@ -17,26 +17,35 @@ def limpiar_y_filtrar(df):
         print("El DataFrame consolidado llegó vacío.")
         return pd.DataFrame()
     
-    # Raíces atómicas calibradas con éxito
-    keywords = ["geren", "ceo", "cfo", "admin", "finan", "gener", "subgeren", "direct", "chief"]
-    
+    # Normalización del texto del título (sin tildes y en minúsculas)
     df['title_lower'] = df['title'].apply(remover_tildes).str.lower()
     
-    condicion_puesto = df['title_lower'].apply(
-        lambda x: any(kw in str(x) for kw in keywords) if pd.notnull(x) else False
+    # 1. LISTA NEGRA: Si contiene alguna de estas palabras, se descarta inmediatamente
+    lista_negra = ["jefe", "analista", "administrador"]
+    condicion_exclusion = df['title_lower'].apply(
+        lambda x: any(neg en str(x) for neg in lista_negra) if pd.notnull(x) else False
     )
     
-    df['location_lower'] = df['location'].apply(remover_tildes).str.lower()
-    comunas_santiago = ['santiago', 'chile', 'metropolitana', 'condes', 'providencia', 'vitacura', 'lo barnechea']
-    condicion_ciudad = df['location_lower'].apply(
-        lambda x: any(com in str(x) for com in comunas_santiago) if pd.notnull(x) else False
+    # 2. LISTA BLANCA DE RANGOS EJECUTIVOS: El puesto debe tener uno de estos cargos de Alta Dirección
+    rangos_ejecutivos = ["gerente", "ceo", "cfo", "subgerente", "director", "chief"]
+    condicion_rango = df['title_lower'].apply(
+        lambda x: any(rango in str(x) for rango in rangos_ejecutivos) if pd.notnull(x) else False
     )
     
-    df_filtrado = df[condicion_puesto & condicion_ciudad].copy()
+    # 3. LISTA BLANCA DE ESPECIALIDADES: Asegura capturar administración, finanzas y gerencia general
+    especialidades = ["general", "finanzas", "administracion", "legal", "ti", "comercial"]
+    condicion_especialidad = df['title_lower'].apply(
+        lambda x: any(esp in str(x) for esp in especialidades) if pd.notnull(x) else False
+    )
+    
+    # Aplicación de la lógica combinada (Debe cumplir rango y especialidad, y NO estar en la lista negra)
+    df_filtrado = df[condicion_rango & condicion_especialidad & ~condicion_exclusion].copy()
+    
+    # Eliminar duplicados exactos por título y empresa
     df_filtrado = df_filtrado.drop_duplicates(subset=['title', 'company'], keep='first')
     
-    print(f"Empleos finales que pasaron el filtro: {len(df_filtrado)}")
-    return df_filtrado.drop(columns=['title_lower', 'location_lower'], errors='ignore')
+    print(f"Empleos finales que pasaron el filtro ejecutivo: {len(df_filtrado)}")
+    return df_filtrado.drop(columns=['title_lower'], errors='ignore')
 
 def buscar_linkedin():
     try:
@@ -91,7 +100,7 @@ def enviar_correo(df):
         <html>
         <body>
             <h2>Alerta Ejecutiva Diaria</h2>
-            <p>El sistema se ejecutó correctamente, pero no se registraron nuevas vacantes bajo tus criterios en las últimas 24 horas en Santiago.</p>
+            <p>El sistema se ejecutó correctamente, pero no se registrarion nuevas vacantes de Alta Dirección bajo tus criterios en las últimas 24 horas en Santiago.</p>
         </body>
         </html>
         """
@@ -110,7 +119,7 @@ def enviar_correo(df):
         </head>
         <body>
             <h2>Vacantes Ejecutivas Consolidadas - Santiago</h2>
-            <p>Reporte unificado (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
+            <p>Reporte unificado limpio de cargos operativos (LinkedIn, Trabajando, Laborum, Chiletrabajos):</p>
             <table>
                 <tr>
                     <th>Puesto</th>
@@ -135,12 +144,8 @@ def enviar_correo(df):
     max_intentos = 3
     for intento in range(1, max_intentos + 1):
         try:
-            # BLINDAJE DE INFRAESTRUCTURA: Conexión por IP directa de Google (74.125.142.108) saltándonos el DNS de GitHub
             print(f"Estableciendo conexión SSL directa por IP de Google 74.125.142.108:465 (Intento {intento}/{max_intentos})...")
-            
-            # Pasamos la IP fija y forzamos el nombre del host en el handshake SSL para cumplir las normas de Google
             server = smtplib.SMTP_SSL("74.125.142.108", 465, timeout=20)
-            
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, receiver_email, msg.as_string().encode('utf-8'))
             server.quit()
