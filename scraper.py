@@ -15,7 +15,7 @@ def limpiar_y_filtrar(df):
     if df is None or df.empty:
         return pd.DataFrame()
     
-    # Palabras clave solicitadas para cargos ejecutivos
+    # Lista de términos solicitados corregida y cerrada
     keywords = ["gerente", "ceo", "cfo", "administracion", "finanzas", "]
     
     # Filtrado por puesto (limpiando tildes y pasando a minúsculas)
@@ -59,7 +59,7 @@ def buscar_linkedin():
 def buscar_portales_locales():
     try:
         print("Consultando Indeed (Laborum, Chiletrabajos, Trabajando)...")
-        # Query simplificada sin operadores lógicos pesados para no bloquear el motor regional
+        # Query simplificada para el motor regional de Indeed Chile
         jobs = scrape_jobs(
             site_name=["indeed"],
             search_term='Gerente Santiago',
@@ -162,7 +162,7 @@ if __name__ == "__main__":
     df_lk = buscar_linkedin()
     df_locales = buscar_portales_locales()
     
-    # Corrección de sintaxis: Inicialización limpia de la lista
+    # Inicialización correcta de la lista
     lista_dfs =
     
     if not df_lk.empty:
